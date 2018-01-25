@@ -110,7 +110,7 @@ class EvolutionSerializer(
         }
     }
 
-    override fun writeObject(obj: Any, data: Data, type: Type, output: SerializationOutput) {
+    override fun writeObject(obj: Any, data: Data, type: Type, output: SerializationOutput, offset: Int) {
         throw UnsupportedOperationException("It should be impossible to write an evolution serializer")
     }
 
@@ -124,6 +124,7 @@ class EvolutionSerializer(
      * TODO: Object references
      */
     override fun readObject(obj: Any, schemas: SerializationSchemas, input: DeserializationInput): Any {
+        println ("NO NO NO NO NO - evo serialiser read - $type")
         if (obj !is List<*>) throw NotSerializableException("Body of described type is unexpected $obj")
 
         return construct(readers.map { it?.readProperty(obj, schemas, input) })

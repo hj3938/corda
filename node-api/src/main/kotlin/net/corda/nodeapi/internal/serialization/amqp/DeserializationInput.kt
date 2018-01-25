@@ -1,5 +1,6 @@
 package net.corda.nodeapi.internal.serialization.amqp
 
+import com.google.common.primitives.Primitives
 import net.corda.core.internal.getStackTraceAsString
 import net.corda.core.serialization.SerializedBytes
 import net.corda.core.utilities.ByteSequence
@@ -106,12 +107,13 @@ class DeserializationInput(internal val serializerFactory: SerializerFactory) {
         ObjectAndEnvelope(clazz.cast(readObjectOrNull(envelope.obj, SerializationSchemas(envelope.schema, envelope.transformsSchema), clazz)), envelope)
     }
 
-    internal fun readObjectOrNull(obj: Any?, schema: SerializationSchemas, type: Type): Any? {
-        return if (obj == null) null else readObject(obj, schema, type)
+    internal fun readObjectOrNull(obj: Any?, schema: SerializationSchemas, type: Type, offset: Int = 0): Any? {
+        return if (obj == null) null else readObject(obj, schema, type, offset)
     }
 
-    internal fun readObject(obj: Any, schemas: SerializationSchemas, type: Type): Any =
+    internal fun readObject(obj: Any, schemas: SerializationSchemas, type: Type, offset: Int = 0): Any =
             if (obj is DescribedType && ReferencedObject.DESCRIPTOR == obj.descriptor) {
+                println ("readObject from cache - $type")
                 // It must be a reference to an instance that has already been read, cheaply and quickly returning it by reference.
                 val objectIndex = (obj.described as UnsignedInteger).toInt()
                 if (objectIndex !in 0..objectHistory.size)
@@ -119,10 +121,14 @@ class DeserializationInput(internal val serializerFactory: SerializerFactory) {
                             "is outside of the bounds for the list of size: ${objectHistory.size}")
 
                 val objectRetrieved = objectHistory[objectIndex]
-                if (!objectRetrieved::class.java.isSubClassOf(type.asClass()!!))
-                    throw NotSerializableException("Existing reference type mismatch. Expected: '$type', found: '${objectRetrieved::class.java}'")
+                if (!objectRetrieved::class.java.isSubClassOf(type.asClass()!!)) {
+                    throw NotSerializableException(
+                            "Existing reference type mismatch. Expected: '$type', found: '${objectRetrieved::class.java}' " +
+                                    "@ ${objectIndex}")
+                }
                 objectRetrieved
             } else {
+                println ("readObject - $type")
                 val objectRead = when (obj) {
                     is DescribedType -> {
                         // Look up serializer in factory by descriptor
@@ -138,7 +144,15 @@ class DeserializationInput(internal val serializerFactory: SerializerFactory) {
 
                 // Store the reference in case we need it later on.
                 // Skip for primitive types as they are too small and overhead of referencing them will be much higher than their content
-                if (suitableForObjectReference(objectRead.javaClass)) objectHistory.add(objectRead)
+                if (suitableForObjectReference(objectRead.javaClass)) {
+                    println ("- $type - add to cache @${objectHistory.size}")
+                    objectHistory.add(objectRead)
+                }
+                else {
+                    println ("  $type is unsuitable for caching")
+                    val clazz = type.asClass()
+                    println ("    ==> ${type != ByteArray::class.java} ${clazz != null} ${clazz?.isPrimitive} ${Primitives.unwrap(clazz).isPrimitive}")
+                }
                 objectRead
             }
 

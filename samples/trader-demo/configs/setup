@@ -1,0 +1,8 @@
+#!/bin/bash
+
+cp BankA.conf ../build/nodes/Bank\ A/node.conf
+cp BankB.conf ../build/nodes/Bank\ B/node.conf
+cp BankOfCorda.conf ../build/nodes/BankOfCorda/node.conf
+cp Notary.conf ../build/nodes/Notary\ Service/node.conf
+
+

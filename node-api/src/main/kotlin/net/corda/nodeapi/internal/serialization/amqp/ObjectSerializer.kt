@@ -52,13 +52,15 @@ open class ObjectSerializer(val clazz: Type, factory: SerializerFactory) : AMQPS
         }
     }
 
-    override fun writeObject(obj: Any, data: Data, type: Type, output: SerializationOutput) = ifThrowsAppend({ clazz.typeName }) {
+    override fun writeObject(obj: Any, data: Data, type: Type, output: SerializationOutput, offset: Int) = ifThrowsAppend({ clazz.typeName }) {
         // Write described
         data.withDescribed(typeNotation.descriptor) {
             // Write list
             withList {
+                val pad = "".padStart(offset)
+                println ("${pad}Writing object properties:")
                 propertySerializers.serializationOrder.forEach { property ->
-                    property.getter.writeProperty(obj, this, output)
+                    property.getter.writeProperty(obj, this, output, offset+4)
                 }
             }
         }
@@ -89,6 +91,13 @@ open class ObjectSerializer(val clazz: Type, factory: SerializerFactory) : AMQPS
             input: DeserializationInput) : Any = ifThrowsAppend({ clazz.typeName }){
         logger.trace { "Calling construction based construction for ${clazz.typeName}" }
 
+
+        println("build obj via constructor")
+        propertySerializers.serializationOrder.map {
+            println ("  + ${it.getter.name} - ${it.getter.type}")
+        }
+
+
         return construct (propertySerializers.serializationOrder
                 .zip(obj)
                 .map { Pair(it.first.initialPosition, it.first.getter.readProperty(it.second, schemas, input)) }
@@ -101,6 +110,11 @@ open class ObjectSerializer(val clazz: Type, factory: SerializerFactory) : AMQPS
             schemas: SerializationSchemas,
             input: DeserializationInput) : Any = ifThrowsAppend({ clazz.typeName }){
         logger.trace { "Calling setter based construction for ${clazz.typeName}" }
+
+        println("build obj via setters")
+        propertySerializers.serializationOrder.map {
+            println ("  # ${it.getter.name} - ${it.getter.type}")
+        }
 
         val instance : Any = javaConstructor?.newInstance() ?: throw NotSerializableException (
                 "Failed to instantiate instance of object $clazz")
