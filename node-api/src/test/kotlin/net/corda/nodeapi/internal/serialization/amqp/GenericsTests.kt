@@ -1,9 +1,15 @@
 package net.corda.nodeapi.internal.serialization.amqp
 
+import net.corda.core.contracts.*
 import net.corda.core.serialization.SerializedBytes
 import net.corda.nodeapi.internal.serialization.AllWhitelist
 import net.corda.testing.common.internal.ProjectStructure.projectRootDir
 import org.junit.Test
+import net.corda.core.identity.AbstractParty
+import net.corda.core.identity.CordaX500Name
+import net.corda.core.identity.Party
+import net.corda.core.transactions.WireTransaction
+import net.corda.testing.core.TestIdentity
 import java.io.File
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
@@ -252,29 +258,49 @@ class GenericsTests {
                         File(GenericsTests::class.java.getResource(resource).toURI()).readBytes())).t)
     }
 
-    interface DifferentBounds {
-        fun go()
+    data class StateAndString(val state: TransactionState<*>, val str: String)
+
+    private fun fingerprintingDiffersStrip(state: StateAndString) {
+        val factory1 = testDefaultFactory()
+        factory1.register(net.corda.nodeapi.internal.serialization.amqp.custom.PublicKeySerializer)
+        val ser = TestSerializationOutput(VERBOSE, factory1).serializeAndReturnSchema(state)
+
+        val factory2 = testDefaultFactory()
+        factory2.register(net.corda.nodeapi.internal.serialization.amqp.custom.PublicKeySerializer)
+        val des = DeserializationInput(factory2).deserializeAndReturnEnvelope(ser.obj)
+
+        println ("\n\n\n")
+        ser.schema.types.forEach {
+            println ("${it.descriptor.name} ${it.name}")
+        }
+        println ("\n")
+
+        des.envelope.schema.types.forEach {
+            println ("${it.descriptor.name} ${it.name}")
+        }
     }
 
     @Test
-    fun differentBounds() {
-        data class A (val a: Int): DifferentBounds {
-           override fun go() {
-               println(a)
-           }
+    fun fingerprintingDiffers() {
+        val miniCorp = TestIdentity(CordaX500Name("MiniCorp", "London", "GB"))
+
+        data class TestContractState(
+                override val participants: List<AbstractParty>
+        ) : ContractState
+
+        class TestAttachmentConstraint : AttachmentConstraint {
+            override fun isSatisfiedBy(attachment: Attachment) = true
         }
 
-        data class G<out T : DifferentBounds>(val b: T)
+        val state = TransactionState<TestContractState> (
+                TestContractState(listOf(miniCorp.party)),
+                "wibble", miniCorp.party,
+                encumbrance = null,
+                constraint = TestAttachmentConstraint())
 
-        val factorys = listOf(
-                SerializerFactory(AllWhitelist, ClassLoader.getSystemClassLoader()),
-                SerializerFactory(AllWhitelist, ClassLoader.getSystemClassLoader()))
+        val sas = StateAndString(state, "wibble")
 
-        val ser = SerializationOutput(factorys[0])
-
-        ser.serialize(G(A(10))).apply {
-            factorys.forEach {
-            }
-        }
+        fingerprintingDiffersStrip(sas)
     }
+
 }
