@@ -10,10 +10,20 @@ import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
 import net.corda.core.transactions.WireTransaction
 import net.corda.testing.core.TestIdentity
+import org.hibernate.Transaction
 import java.io.File
 import java.net.URI
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.test.assertEquals
+
+data class TestContractState(
+        override val participants: List<AbstractParty>
+) : ContractState
+
+class TestAttachmentConstraint : AttachmentConstraint {
+    override fun isSatisfiedBy(attachment: Attachment) = true
+}
 
 class GenericsTests {
     companion object {
@@ -22,6 +32,8 @@ class GenericsTests {
         @Suppress("UNUSED")
         var localPath = projectRootDir.toUri().resolve(
                 "node-api/src/test/resources/net/corda/nodeapi/internal/serialization/amqp")
+
+        val miniCorp = TestIdentity(CordaX500Name("MiniCorp", "London", "GB"))
     }
 
     private fun printSeparator() = if (VERBOSE) println("\n\n-------------------------------------------\n\n") else Unit
@@ -258,40 +270,59 @@ class GenericsTests {
                         File(GenericsTests::class.java.getResource(resource).toURI()).readBytes())).t)
     }
 
-    data class StateAndString(val state: TransactionState<*>, val str: String)
+    data class StateAndString(val state: TransactionState<*>, val ref: String)
+    data class GenericStateAndString<out T: ContractState>(val state: TransactionState<T>, val ref: String)
 
-    private fun fingerprintingDiffersStrip(state: StateAndString) {
+    private fun fingerprintingDiffersStrip(state: Any) {
+        class cl : ClassLoader()
+
+        val m = ClassLoader::class.java.getDeclaredMethod("findLoadedClass", *arrayOf<Class<*>>(String::class.java))
+        m.isAccessible = true
+
         val factory1 = testDefaultFactory()
         factory1.register(net.corda.nodeapi.internal.serialization.amqp.custom.PublicKeySerializer)
-        val ser = TestSerializationOutput(VERBOSE, factory1).serializeAndReturnSchema(state)
+        val ser1 = TestSerializationOutput(VERBOSE, factory1).serializeAndReturnSchema(state)
 
-        val factory2 = testDefaultFactory()
+        // attempt at having a class loader without some of the derived non core types loaded and thus
+        // possibly altering how we serialise things
+        val altClassLoader = cl()
+
+        val factory2 = SerializerFactory(AllWhitelist, altClassLoader)
         factory2.register(net.corda.nodeapi.internal.serialization.amqp.custom.PublicKeySerializer)
-        val des = DeserializationInput(factory2).deserializeAndReturnEnvelope(ser.obj)
+        val ser2 = TestSerializationOutput(VERBOSE, factory2).serializeAndReturnSchema(state)
+
+        //  now deserialise those objects
+        val factory3 = testDefaultFactory()
+        factory3.register(net.corda.nodeapi.internal.serialization.amqp.custom.PublicKeySerializer)
+        val des1 = DeserializationInput(factory3).deserializeAndReturnEnvelope(ser1.obj)
+
+        val factory4 = SerializerFactory(AllWhitelist, cl())
+        factory4.register(net.corda.nodeapi.internal.serialization.amqp.custom.PublicKeySerializer)
+        val des2 = DeserializationInput(factory4).deserializeAndReturnEnvelope(ser2.obj)
 
         println ("\n\n\n")
-        ser.schema.types.forEach {
+        ser1.schema.types.forEach {
             println ("${it.descriptor.name} ${it.name}")
         }
         println ("\n")
 
-        des.envelope.schema.types.forEach {
+        des1.envelope.schema.types.forEach {
+            println ("${it.descriptor.name} ${it.name}")
+        }
+        println ("\n")
+
+        ser2.schema.types.forEach {
+            println ("${it.descriptor.name} ${it.name}")
+        }
+        println ("\n")
+
+        des2.envelope.schema.types.forEach {
             println ("${it.descriptor.name} ${it.name}")
         }
     }
 
     @Test
     fun fingerprintingDiffers() {
-        val miniCorp = TestIdentity(CordaX500Name("MiniCorp", "London", "GB"))
-
-        data class TestContractState(
-                override val participants: List<AbstractParty>
-        ) : ContractState
-
-        class TestAttachmentConstraint : AttachmentConstraint {
-            override fun isSatisfiedBy(attachment: Attachment) = true
-        }
-
         val state = TransactionState<TestContractState> (
                 TestContractState(listOf(miniCorp.party)),
                 "wibble", miniCorp.party,
@@ -301,6 +332,82 @@ class GenericsTests {
         val sas = StateAndString(state, "wibble")
 
         fingerprintingDiffersStrip(sas)
+    }
+
+    @Test
+    fun fingerprintingDiffersList() {
+        val state = TransactionState<TestContractState> (
+                TestContractState(listOf(miniCorp.party)),
+                "wibble", miniCorp.party,
+                encumbrance = null,
+                constraint = TestAttachmentConstraint())
+
+        val sas = StateAndString(state, "wibble")
+
+        fingerprintingDiffersStrip(Collections.singletonList(sas))
+    }
+
+
+    //
+    // Force object to be serialised as Example<T> and deserialized as Example<?>
+    //
+    @Test
+    fun fingerprintingDiffersListLoaded() {
+        //
+        // using this wrapper class we force the object to be serialised as
+        //      net.corda.core.contracts.TransactionState<T>
+        //
+        data class TransactionStateWrapper<out T : ContractState> (val o: List<GenericStateAndString<T>>)
+
+        val state = TransactionState<TestContractState> (
+                TestContractState(listOf(miniCorp.party)),
+                "wibble", miniCorp.party,
+                encumbrance = null,
+                constraint = TestAttachmentConstraint())
+
+        val sas = GenericStateAndString(state, "wibble")
+
+        val factory1 = testDefaultFactoryNoEvolution()
+        val factory2 = testDefaultFactoryNoEvolution()
+
+        factory1.register(net.corda.nodeapi.internal.serialization.amqp.custom.PublicKeySerializer)
+        factory2.register(net.corda.nodeapi.internal.serialization.amqp.custom.PublicKeySerializer)
+
+        val ser1 = TestSerializationOutput(VERBOSE, factory1).serializeAndReturnSchema(
+                TransactionStateWrapper(Collections.singletonList(sas)))
+
+        println ("\n\n\n\n")
+        val des1 = DeserializationInput(factory2).deserializeAndReturnEnvelope(ser1.obj)
+
+        println ("\n\n\n")
+        ser1.schema.types.forEach {
+            println ("${it.descriptor.name} ${it.name}")
+        }
+        println ("\n")
+
+        des1.envelope.schema.types.forEach {
+            println ("${it.descriptor.name} ${it.name}")
+        }
+        println ("\n")
+    }
+
+    @Test
+    fun anotherTry() {
+        open class BaseState(val a : Int)
+        class DState(a: Int) : BaseState(a)
+        data class LTransactionState<out T : BaseState> constructor(val data: T)
+        data class StateWrapper<out T : BaseState>(val state: LTransactionState<T>)
+
+        val factory1 = testDefaultFactoryNoEvolution()
+
+        val state = LTransactionState(DState(1))
+        val stateAndString = StateWrapper(state)
+
+        val ser1 = TestSerializationOutput(VERBOSE, factory1).serializeAndReturnSchema(stateAndString)
+
+        //val factory2 = testDefaultFactoryNoEvolution()
+        val factory2 = testDefaultFactory()
+        val des1 = DeserializationInput(factory2).deserializeAndReturnEnvelope(ser1.obj)
     }
 
 }

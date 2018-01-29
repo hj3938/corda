@@ -1,6 +1,6 @@
 #!/bin/bash
 
-cd /Users/katelynbaker/srcs-ide/corda-open/samples/trader-demo/configs
+cd /home/katelyn/srcs/corda/samples/trader-demo/configs
 
 cp BankA.conf ../build/nodes/Bank\ A/node.conf
 cp BankB.conf ../build/nodes/Bank\ B/node.conf

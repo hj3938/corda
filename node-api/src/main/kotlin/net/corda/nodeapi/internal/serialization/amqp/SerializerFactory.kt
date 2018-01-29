@@ -223,7 +223,7 @@ open class SerializerFactory(
                 // doesn't match that of the serialised object then we are dealing with  different
                 // instance of the class, as such we need to build an EvolutionSerializer
                 if (serialiser.typeDescriptor != typeNotation.descriptor.name) {
-                    println ("\n\nNEEDS EVOLUTION: ${serialiser.typeDescriptor} != ${typeNotation.descriptor.name}\n\n")
+                    println ("\n\nNEEDS EVOLUTION: $typeNotation - ${serialiser.typeDescriptor} != ${typeNotation.descriptor.name}\n\n")
                     getEvolutionSerializer(typeNotation, serialiser, schemaAndDescriptor.schemas)
                 }
             } catch (e: ClassNotFoundException) {

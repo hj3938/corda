@@ -91,13 +91,6 @@ open class ObjectSerializer(val clazz: Type, factory: SerializerFactory) : AMQPS
             input: DeserializationInput) : Any = ifThrowsAppend({ clazz.typeName }){
         logger.trace { "Calling construction based construction for ${clazz.typeName}" }
 
-
-        println("build obj via constructor")
-        propertySerializers.serializationOrder.map {
-            println ("  + ${it.getter.name} - ${it.getter.type}")
-        }
-
-
         return construct (propertySerializers.serializationOrder
                 .zip(obj)
                 .map { Pair(it.first.initialPosition, it.first.getter.readProperty(it.second, schemas, input)) }
