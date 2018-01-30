@@ -1,12 +1,8 @@
 package net.corda.core.node.services
 
 import net.corda.core.DoNotImplement
-import net.corda.core.contracts.StateRef
-import net.corda.core.contracts.TransactionResolutionException
-import net.corda.core.contracts.TransactionState
 import net.corda.core.crypto.SecureHash
 import net.corda.core.messaging.DataFeed
-import net.corda.core.node.StateLoader
 import net.corda.core.transactions.SignedTransaction
 import rx.Observable
 

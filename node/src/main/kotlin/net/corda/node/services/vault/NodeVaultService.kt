@@ -6,7 +6,7 @@ import net.corda.core.contracts.*
 import net.corda.core.crypto.SecureHash
 import net.corda.core.internal.*
 import net.corda.core.messaging.DataFeed
-import net.corda.core.node.StateLoader
+import net.corda.core.node.ServicesForResolution
 import net.corda.core.node.StatesToRecord
 import net.corda.core.node.services.*
 import net.corda.core.node.services.vault.*
@@ -47,7 +47,7 @@ private fun CriteriaBuilder.executeUpdate(session: Session, configure: Root<*>.(
 class NodeVaultService(
         private val clock: Clock,
         private val keyManagementService: KeyManagementService,
-        private val stateLoader: StateLoader,
+        private val services: ServicesForResolution,
         private val attachments: AttachmentStorage,
         hibernateConfig: HibernateConfiguration
 ) : SingletonSerializeAsToken(), VaultServiceInternal {
@@ -153,8 +153,8 @@ class NodeVaultService(
             // We also can't do filtering beforehand, since for notary change transactions output encumbrance pointers
             // get recalculated based on input positions.
             val ltx: FullTransaction = when (tx) {
-                is NotaryChangeWireTransaction -> tx.resolve(stateLoader, emptyList())
-                is ContractUpgradeWireTransaction -> tx.resolve(stateLoader, attachments, emptyList())
+                is NotaryChangeWireTransaction -> tx.resolve(services, emptyList())
+                is ContractUpgradeWireTransaction -> tx.resolve(services, emptyList())
                 else -> throw IllegalArgumentException("Unsupported transaction type: ${tx.javaClass.name}")
             }
             val myKeys = keyManagementService.filterMyKeys(ltx.outputs.flatMap { it.data.participants.map { it.owningKey } })
@@ -449,7 +449,7 @@ class NodeVaultService(
                         }
                     }
             if (stateRefs.isNotEmpty())
-                statesAndRefs.addAll(stateLoader.loadStates(stateRefs) as Collection<StateAndRef<T>>)
+                statesAndRefs.addAll(services.loadStates(stateRefs) as Collection<StateAndRef<T>>)
 
             return Vault.Page(states = statesAndRefs, statesMetadata = statesMeta, stateTypes = criteriaParser.stateTypes, totalStatesAvailable = totalStates, otherResults = otherResults)
         } catch (e: java.lang.Exception) {
